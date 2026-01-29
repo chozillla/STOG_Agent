@@ -13,6 +13,7 @@ from urllib.error import URLError
 
 ENDPOINT = "https://mobilapps.rejseplanen.dk/bin/iphone.exe"
 WALK_MINUTES = 7
+MAX_STATION_WAIT = 2  # max minutes willing to wait at the station
 
 # ANSI color codes
 GREEN = "\033[92m"
@@ -136,7 +137,7 @@ def format_delay(scheduled, realtime):
 def display_trips(api):
     """Main display: search trips and show leave-by times."""
     print(f"\n{BOLD}=== Kildedal → Fuglsang Allé ==={RESET}")
-    print(f"{DIM}Walk to station: {WALK_MINUTES} min{RESET}\n")
+    print(f"{DIM}Walk to station: {WALK_MINUTES} min | Max station wait: {MAX_STATION_WAIT} min{RESET}\n")
 
     # Step 1: Find station IDs
     print(f"{DIM}Looking up stations...{RESET}")
@@ -185,8 +186,9 @@ def display_trips(api):
         return
 
     now = datetime.now()
-    print(f"{BOLD}{'#':<3} {'Leave work':<12} {'Depart':<10} {'Arrive':<10} {'Dur':<8} {'Chg':<5} {'Status'}{RESET}")
-    print("─" * 70)
+    total_lead = WALK_MINUTES + MAX_STATION_WAIT  # leave this many min before departure
+    print(f"{BOLD}{'#':<3} {'Leave office':<14} {'At station':<12} {'Depart':<10} {'Arrive':<10} {'Wait':<6} {'Dur':<8} {'Chg':<5} {'Status'}{RESET}")
+    print("─" * 95)
 
     for i, conn in enumerate(connections, 1):
         date = conn.get("date", "")
@@ -213,8 +215,12 @@ def display_trips(api):
         dep_effective = dep_realtime if dep_realtime else dep_scheduled
         arr_effective = arr_realtime if arr_realtime else arr_scheduled
 
-        # Leave-work time: 7 min before effective departure
-        leave_by = dep_effective - timedelta(minutes=WALK_MINUTES)
+        # Leave office: depart - walk - max wait (arrive at station with ≤2 min to spare)
+        leave_by = dep_effective - timedelta(minutes=total_lead)
+        # Arrive at station: leave + walk time
+        at_station = leave_by + timedelta(minutes=WALK_MINUTES)
+        # Actual wait at station
+        station_wait = int((dep_effective - at_station).total_seconds() / 60)
 
         # Duration
         duration = arr_effective - dep_effective
@@ -254,11 +260,15 @@ def display_trips(api):
         if arr_realtime and arr_realtime != arr_scheduled:
             arr_display = f"{arr_scheduled.strftime('%H:%M')}→{arr_realtime.strftime('%H:%M')}"
 
+        wait_str = f"{station_wait}m"
+
         print(
             f"{i:<3} "
             f"{leave_color}{BOLD}{leave_by.strftime('%H:%M')}{RESET}{leave_note:<7} "
+            f"{at_station.strftime('%H:%M'):<12} "
             f"{dep_display:<10} "
             f"{arr_display:<10} "
+            f"{wait_str:<6} "
             f"{dur_str:<8} "
             f"{changes:<5} "
             f"{status}"
@@ -289,7 +299,7 @@ def display_trips(api):
             print(f"    {DIM}→ {' → '.join(leg_parts)}{RESET}")
 
     print()
-    print(f"{DIM}Updated: {now.strftime('%H:%M:%S')} | Walk time: {WALK_MINUTES} min to Kildedal St.{RESET}")
+    print(f"{DIM}Updated: {now.strftime('%H:%M:%S')} | Walk: {WALK_MINUTES} min | Max station wait: {MAX_STATION_WAIT} min | Leave {total_lead} min before departure{RESET}")
 
 
 def main():
